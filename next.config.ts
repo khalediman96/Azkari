@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-import withVideo from 'next-video';
+
 
 
 const nextConfig: NextConfig = {

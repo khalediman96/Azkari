@@ -58,14 +58,14 @@ export default function DhikrSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="ابحث في الأذكار..."
-          className="w-full p-4 pl-12 text-lg dark:border rounded-md focus:outline-none focus:ring-1 focus:ring-purple-500 text-right"
+          className="w-full p-4 text-gray-200 pl-12 text-lg dark:border rounded-md focus:outline-none focus:ring-1 focus:ring-[#177c52] text-right bg-[#eef7f0]/50 dark:bg-[#0f3422]/80 border border-[#c27c18]/20 dark:border-[#177c52]/40 rounded-xl"
           dir="rtl"
         />
-        <div className="absolute top-1/2 left-3 transform -translate-y-1/2 bg-purple-800 p-2 rounded-sm">
+        <div className="absolute top-1/2 left-3 transform -translate-y-1/2 bg-[#177c52] p-2 rounded-sm">
           <Search className="h-5 w-5 text-white" />
         </div>
         {isLoading && (
-          <div className="absolute top-4 left-12 text-gray-500" dir="rtl">
+          <div className="absolute top-4 left-12 text-gray-100" dir="rtl">
             جاري البحث...
           </div>
         )}
@@ -82,7 +82,7 @@ export default function DhikrSearch() {
                 dir="rtl"
                 onClick={() => handleResultClick(category, `item-${itemIndex}`)}
               >
-                <div className="text-sm text-purple-700 mb-1">
+                <div className="text-sm text-[#177c52] dark:text-[#47b484] mb-1">
                   {result.doc.categoryTitle}
                 </div>
                 {result.doc.main.trim() && (
@@ -91,7 +91,7 @@ export default function DhikrSearch() {
                 <p className="mb-2">{result.doc.secondary}</p>
                 {result.doc.reward.trim() && (
                   <div className="mt-2 p-2 rounded">
-                    <p className="text-purple-400">{result.doc.reward}</p>
+                    <p className="text-[#c27c18] dark:text-[#d4a843]">{result.doc.reward}</p>
                   </div>
                 )}
               </div>

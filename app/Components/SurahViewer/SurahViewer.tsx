@@ -6,6 +6,11 @@ import { ChevronDownIcon, BookOpenIcon, LanguageIcon, PlayIcon, PauseIcon } from
 import Select from 'react-select';
 import Image from 'next/image';
 
+// Import Google Fonts for better Arabic support
+const googleFontsLink = `
+@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Scheherazade+New:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@100;200;300;400;500;600;700;800;900&display=swap');
+`;
+
 interface Verse {
   number: number;
   text: string;
@@ -23,6 +28,9 @@ interface SurahInfo {
   number: number;
   name: string;
   englishName: string;
+  englishNameTranslation: string;
+  numberOfAyahs: number;
+  revelationType: string;
 }
 
 export default function SurahViewer() {
@@ -34,17 +42,37 @@ export default function SurahViewer() {
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
 
+  // Using the free Al-Quran Cloud API (no authentication required)
+  const API_BASE_URL = 'https://api.alquran.cloud/v1';
+
   useEffect(() => {
     const fetchSurahList = async () => {
       try {
-        const response = await axios.get('http://api.alquran.cloud/v1/meta');
-        const surahList = Object.values(response.data.data.surahs.references) as SurahInfo[];
-        setSurahs(surahList);
-      } catch (err) {
-        console.error('Error fetching surah list:', err);
+        console.log('Fetching surah list from:', `${API_BASE_URL}/meta`);
+        
+        const response = await axios.get(`${API_BASE_URL}/meta`);
+        
+        console.log('Surah list response:', response.data);
+        
+        if (response.data && response.data.data && response.data.data.surahs) {
+          // Convert the surahs object to array
+          const surahArray = Object.values(response.data.data.surahs.references) as SurahInfo[];
+          setSurahs(surahArray);
+          console.log('Processed surahs:', surahArray);
+        } else {
+          throw new Error('Invalid response structure');
+        }
+      } catch (err: any) {
+        console.error('Error fetching surah list:', {
+          message: err.message,
+          response: err.response?.data,
+          status: err.response?.status,
+          config: err.config
+        });
         setError('Failed to load surah list. Please try again.');
       }
     };
+    
     fetchSurahList();
   }, []);
 
@@ -52,47 +80,69 @@ export default function SurahViewer() {
     const fetchSurah = async () => {
       setLoading(true);
       setError(null);
+      
       try {
+        console.log('Fetching surah data for ID:', selectedSurah);
+        
+        // Fetch Arabic verses and English translation
         const [arabicResponse, translationResponse] = await Promise.all([
-          axios.get(`http://api.alquran.cloud/v1/surah/${selectedSurah}/ar`),
-          axios.get(`http://api.alquran.cloud/v1/surah/${selectedSurah}/en.asad`),
+          axios.get(`${API_BASE_URL}/surah/${selectedSurah}`),
+          axios.get(`${API_BASE_URL}/surah/${selectedSurah}/en.sahih`)
         ]);
 
+        console.log('Arabic response:', arabicResponse.data);
+        console.log('Translation response:', translationResponse.data);
+
+        if (!arabicResponse.data?.data || !translationResponse.data?.data) {
+          throw new Error('Invalid API response structure');
+        }
+
+        const arabicData = arabicResponse.data.data;
+        const translationData = translationResponse.data.data;
         const bismillahText = 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ';
+
         const surah: Surah = {
-          number: arabicResponse.data.data.number,
-          name: arabicResponse.data.data.name,
-          verses: arabicResponse.data.data.ayahs.map((ayah: any) => {
-            const verse: Verse = {
+          number: arabicData.number,
+          name: arabicData.name,
+          verses: arabicData.ayahs.map((ayah: any) => {
+            const verseData: Verse = {
               number: ayah.numberInSurah,
               text: ayah.text,
             };
-            // Check if the verse text starts with Bismillah (except for Surah 9)
+            
+            // Handle Bismillah (except for Surah 9 which doesn't have it)
             if (selectedSurah !== 9 && ayah.numberInSurah === 1 && ayah.text.startsWith(bismillahText)) {
-              verse.bismillah = bismillahText;
-              verse.text = ayah.text.replace(bismillahText, '').trim();
+              verseData.bismillah = bismillahText;
+              verseData.text = ayah.text.replace(bismillahText, '').trim();
             }
-            return verse;
+            
+            return verseData;
           }),
-          translation: translationResponse.data.data.ayahs.map((ayah: any) => ({
+          translation: translationData.ayahs.map((ayah: any) => ({
             number: ayah.numberInSurah,
             text: ayah.text,
           })),
         };
 
         setSurahData(surah);
-      } catch (err) {
-        console.error('Error fetching surah:', err);
-        setError('Failed to load surah data. Please try again.');
+        console.log('Final surah data:', surah);
+      } catch (err: any) {
+        console.error('Error fetching surah:', {
+          message: err.message,
+          response: err.response?.data,
+          status: err.response?.status,
+          config: err.config
+        });
+        setError(`Failed to load surah data: ${err.response?.status || err.message}`);
       } finally {
         setLoading(false);
       }
     };
 
-    if (selectedSurah) {
+    if (selectedSurah && surahs.length > 0) {
       fetchSurah();
     }
-  }, [selectedSurah]);
+  }, [selectedSurah, surahs]);
 
   // Custom styles for React Select with modern design
   const customStyles = {
@@ -168,11 +218,17 @@ export default function SurahViewer() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-indigo-50 dark:from-slate-900 dark:via-purple-900/20 dark:to-indigo-900/20 flex items-center justify-center">
-        <div className="text-center p-8 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl border border-red-200 dark:border-red-800 shadow-xl">
+      <div className="min-h-screen bg-gradient-to-br from-[#f7f3e9] via-[#eef7f0] to-[#e8f4ec] dark:from-[#061f13] dark:via-[#0a2618] dark:to-[#0f3422] flex items-center justify-center">
+        <div className="text-center p-8 bg-[#f7f3e9]/75 dark:bg-[#0f3422]/75 backdrop-blur-xl rounded-2xl border border-red-200 dark:border-red-800 shadow-xl max-w-md mx-4">
           <div className="text-red-500 text-6xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold text-red-600 dark:text-red-400 mb-2">خطأ في التحميل</h2>
-          <p className="text-red-600 dark:text-red-400">{error}</p>
+          <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            إعادة المحاولة
+          </button>
         </div>
       </div>
     );
@@ -180,18 +236,50 @@ export default function SurahViewer() {
 
   if (loading || !surahData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-indigo-50 dark:from-slate-900 dark:via-purple-900/20 dark:to-indigo-900/20 flex items-center justify-center">
-        <div className="text-center p-8 bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl border border-white/20 dark:border-slate-700/50 shadow-xl">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-purple-500 border-t-transparent mx-auto mb-4"></div>
+      <div className="min-h-screen bg-gradient-to-br from-[#f7f3e9] via-[#eef7f0] to-[#e8f4ec] dark:from-[#061f13] dark:via-[#0a2618] dark:to-[#0f3422] flex items-center justify-center">
+        <div className="text-center p-8 bg-[#f7f3e9]/75 dark:bg-[#0f3422]/75 backdrop-blur-xl rounded-2xl border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-xl">
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-[#177c52] border-t-transparent mx-auto mb-4"></div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">جاري التحميل...</h2>
           <p className="text-slate-600 dark:text-slate-300">يتم تحميل السورة الكريمة</p>
+          {surahs.length === 0 && (
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+              جاري تحميل قائمة السور...
+            </p>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-indigo-50 dark:from-slate-900 dark:via-purple-900/20 dark:to-indigo-900/20">
+    <>
+      {/* Add Google Fonts and Arabic font styles */}
+      <style jsx global>{`
+        ${googleFontsLink}
+        
+        .font-arabic {
+          font-family: 'Amiri', 'Scheherazade New', 'Noto Sans Arabic', 'Arabic UI Display', 'SF Arabic', 'Geeza Pro', 'Times New Roman', serif !important;
+          font-feature-settings: 'liga' 1, 'dlig' 1, 'kern' 1;
+          text-rendering: optimizeLegibility;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          direction: rtl;
+          unicode-bidi: bidi-override;
+        }
+        
+        /* Ensure proper Arabic character rendering */
+        .font-arabic * {
+          font-family: inherit !important;
+        }
+        
+        /* Fix for specific Arabic characters */
+        .font-arabic {
+          font-variant-ligatures: common-ligatures contextual;
+          font-kerning: auto;
+        }
+      `}</style>
+      
+      <div className="min-h-screen bg-gradient-to-br from-[#f7f3e9] via-[#eef7f0] to-[#e8f4ec] dark:from-[#061f13] dark:via-[#0a2618] dark:to-[#0f3422]">
       {/* Hero Section */}
       <section className="relative pt-24 pb-12">
         <div className="w-[95%]  mx-auto px-4">
@@ -225,12 +313,12 @@ export default function SurahViewer() {
       {/* Controls Section */}
       <section className="relative z-[2] py-8">
         <div className="w-[95%]  mx-auto px-4">
-          <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-white/20 dark:border-slate-700/50 shadow-xl">
+          <div className="bg-[#f7f3e9]/65 dark:bg-[#0f3422]/65 backdrop-blur-xl rounded-2xl p-6 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-xl">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 ">
               {/* Surah Selection */}
               <div className="space-y-3">
                 <label htmlFor="surah-select" className="flex items-center gap-2 text-lg font-semibold text-slate-800 dark:text-white">
-                  <BookOpenIcon className="w-5 h-5 text-purple-600" />
+                  <BookOpenIcon className="w-5 h-5 text-[#177c52]" />
                   اختر السورة
                 </label>
                 <Select
@@ -243,21 +331,22 @@ export default function SurahViewer() {
                   classNamePrefix="react-select"
                   placeholder="ابحث عن السورة..."
                   isSearchable
+                  isDisabled={surahs.length === 0}
                 />
               </div>
 
               {/* Translation Toggle */}
               <div className="space-y-3">
                 <label className="flex items-center gap-2 text-lg font-semibold text-slate-800 dark:text-white">
-                  <LanguageIcon className="w-5 h-5 text-purple-600" />
+                  <LanguageIcon className="w-5 h-5 text-[#177c52]" />
                   الترجمة
                 </label>
                 <button
                   onClick={() => setShowTranslation(!showTranslation)}
                   className={`w-full py-3 px-6 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
                     showTranslation
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25'
-                      : 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg shadow-purple-500/25'
+                      ? 'bg-gradient-to-r from-[#177c52] to-[#0a5c34] text-white shadow-lg shadow-[#177c52]/25'
+                      : 'bg-gradient-to-r from-[#c27c18] to-[#8a530d] text-white shadow-lg shadow-[#c27c18]/25'
                   }`}
                 >
                   {showTranslation ? 'إخفاء الترجمة' : 'إظهار الترجمة'}
@@ -277,8 +366,8 @@ export default function SurahViewer() {
                       onClick={() => setFontSize(size)}
                       className={`flex-1 py-2 px-3 rounded-lg font-medium transition-all duration-300 ${
                         fontSize === size
-                          ? 'bg-purple-600 text-white shadow-lg'
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/30'
+                          ? 'bg-[#177c52] text-white shadow-lg'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-[#d9f2e6] dark:hover:bg-[#0a5c34]/40'
                       }`}
                     >
                       {size === 'small' ? 'صغير' : size === 'medium' ? 'متوسط' : 'كبير'}
@@ -296,11 +385,11 @@ export default function SurahViewer() {
         <div className="w-[95%] mx-auto px-4">
           {/* Surah Header */}
           <div className="text-center mb-8">
-            <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white shadow-xl">
+            <div className="bg-gradient-to-r from-[#177c52] to-[#0a5c34] rounded-2xl p-6 text-white shadow-xl border border-[#efb63c]/20">
               <h2 className="text-3xl md:text-4xl font-bold mb-2">
                 {surahData.name}
               </h2>
-              <p className="text-emerald-100 text-lg">
+              <p className="text-[#d9f2e6] text-lg">
                 السورة رقم {surahData.number} • {surahData.verses.length} آية
               </p>
             </div>
@@ -311,13 +400,13 @@ export default function SurahViewer() {
             {surahData.verses.map((verse, index) => (
               <div
                 key={verse.number}
-                className="group bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-white/20 dark:border-slate-700/50 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]"
+                className="group bg-[#f7f3e9]/65 dark:bg-[#0f3422]/65 backdrop-blur-xl rounded-2xl p-6 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]"
               >
                 {/* Bismillah */}
                 {verse.bismillah && (
                   <div className="text-center mb-6">
-                    <div className="inline-block bg-gradient-to-r from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
-                      <p className={`font-arabic text-purple-700 dark:text-purple-300 ${getFontSizeClass()} leading-relaxed`}>
+                    <div className="inline-block bg-gradient-to-r from-[#eef7f0] to-[#fdf8e8] dark:from-[#0a5c34]/30 dark:to-[#8a530d]/25 rounded-xl p-4 border border-[#c27c18]/25 dark:border-[#177c52]/40">
+                      <p className={`font-arabic text-[#0a5c34] dark:text-[#47b484] ${getFontSizeClass()} leading-relaxed`}>
                         {verse.bismillah}
                       </p>
                     </div>
@@ -328,7 +417,7 @@ export default function SurahViewer() {
                 <div className="flex flex-col lg:flex-row lg:items-start gap-6">
                   {/* Verse number */}
                   <div className="flex-shrink-0">
-                    <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+                    <div className="w-12 h-12 bg-gradient-to-br from-[#177c52] to-[#0a5c34] rounded-full flex items-center justify-center shadow-lg border border-[#efb63c]/30">
                       <span className="text-white font-bold text-lg">{verse.number}</span>
                     </div>
                   </div>
@@ -346,7 +435,7 @@ export default function SurahViewer() {
 
                     {/* Translation */}
                     {showTranslation && surahData.translation && (
-                      <div className="bg-gradient-to-r from-slate-50 to-blue-50 dark:from-slate-700 dark:to-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                      <div className="bg-gradient-to-r from-[#eef7f0] to-[#f4f1e8] dark:from-[#0c3320] dark:to-[#0f2e1c] rounded-xl p-4 border border-[#b0d4bc] dark:border-[#1e5c3a]">
                         <p className="text-slate-700 dark:text-slate-200 leading-relaxed">
                           {surahData.translation.find((t) => t.number === verse.number)?.text}
                         </p>
@@ -362,6 +451,7 @@ export default function SurahViewer() {
 
       {/* Bottom spacing */}
       <div className="pb-12"></div>
-    </div>
+      </div>
+    </>
   );
 }

@@ -33,34 +33,94 @@ html{
 
 
 :root {
-  --background: #F5F5F5; /* Light background */
-  --text: #2a2d33; /* Light text */
-  --body-bg: #f7fafc; /* Body background for light mode */
-  --border-color: #e2e8f0; /* Light border color */
-  --dropdown-bg: #f7fafc;
-  --dropdown-hover:#660da9; /* Light dropdown hover background */
- 
+  --background: #f7f3e9;          /* Islamic cream light background */
+  --text: #1a3a26;                /* Deep Islamic green text */
+  --body-bg: #f7f3e9;
+  --border-color: #c2dac9;
+  --dropdown-bg: #f0ece0;
+  --dropdown-hover: #177c52;
+  --gold: #c27c18;
+  --green-primary: #177c52;
+  --green-dark: #0a2618;
 }
 
-/* Define dark theme variables */
+/* Dark theme — deep forest green */
 [data-theme="dark"], .dark {
-  --background: #1c1e31; /* Dark background */
-  --text: #e2e8f0; /* Light text for dark mode */
-  --body-bg: #1c1e31; /* Body background for dark mode */
-  --border-color: #4a5568; /* Dark border color */
-  --dropdown-bg: #1c1e31; /* Dark dropdown background */
-  --dropdown-hover:#660da9; /* Dark dropdown hover background */
+  --background: #0a2618;
+  --text: #e8dfc8;
+  --body-bg: #0a2618;
+  --border-color: #1e5c3a;
+  --dropdown-bg: #0f3422;
+  --dropdown-hover: #259a67;
+  --gold: #efb63c;
+  --green-primary: #259a67;
+  --green-dark: #061f13;
 }
+
 body {
   background-color: var(--background);
   color: var(--text);
-  /* font-family: "bein-normal", sans-serif; */
   font-family: "Uthmanic", sans-serif;
+}
 
+/* Islamic geometric decorative divider */
+.islamic-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+.islamic-divider::before,
+.islamic-divider::after {
+  content: '';
+  flex: 1;
+  max-width: 120px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  border-radius: 999px;
+}
+
+/* Islamic star ornament */
+.islamic-star::before {
+  content: '✦';
+  color: var(--gold);
+  font-size: 1.2rem;
+}
+
+
+
+
+/* For WebKit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 12px; /* Scrollbar width */
+}
+
+::-webkit-scrollbar-track {
+    background: #0a2618;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #177c52;
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #259a67;
+}
+
+/* For Firefox */
+* {
+    scrollbar-color: #177c52 #0a2618;
+    scrollbar-width: thin;
 }
 
 .bg-header {
   background-color: var(--body-bg);
+}
+
+/* Islamic ornament pattern overlay */
+.islamic-bg-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cpath d='M40 4L76 40L40 76L4 40Z' fill='none' stroke='rgba(199%2C150%2C40%2C0.12)' stroke-width='1'/%3E%3Ccircle cx='40' cy='40' r='16' fill='none' stroke='rgba(199%2C150%2C40%2C0.10)' stroke-width='1'/%3E%3Cpath d='M40 20L60 40L40 60L20 40Z' fill='none' stroke='rgba(199%2C150%2C40%2C0.08)' stroke-width='1'/%3E%3C/svg%3E");
 }
 
 .cutom-font {
@@ -87,17 +147,17 @@ body {
   bottom: 0;
   background: linear-gradient(
     60deg,
-    #7e22ce, /* Purple */
-    #05b5b5, /* Cyan */
-    #5eb007, /* Green */
-    #6c17bb, /* Dark Purple */
-    #7e22ce  /* Back to Purple */
+    #0a6e3f,  /* Deep Islamic green */
+    #c27c18,  /* Islamic gold */
+    #104b2e,  /* Forest green */
+    #1a8a52,  /* Medium green */
+    #0a6e3f   /* Back to deep green */
   );
-  background-size: 300% 300%; /* Larger size for wavy effect */
-  animation: wavyGradientAnimation 20s ease-in-out infinite; /* Slower animation */
-  opacity: 0.83; /* Semi-transparent to show background image */
-  z-index: 1; /* Below h1 text but above background image */
-  border-radius: inherit; /* Match h1's border-radius if any */
+  background-size: 300% 300%;
+  animation: wavyGradientAnimation 20s ease-in-out infinite;
+  opacity: 0.85;
+  z-index: 1;
+  border-radius: inherit;
 }
 
 /* Keyframes for wavy gradient animation */

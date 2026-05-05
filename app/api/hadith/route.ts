@@ -29,6 +29,14 @@ interface HadithApiResponse {
   bookName: string;
   cached?: boolean;
   cacheAge?: number;
+  pagination?: {
+    currentPage: number;
+    totalPages: number;
+    limit: number;
+    offset: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
   performance?: {
     responseTime: number;
     cacheHit: boolean;
@@ -48,7 +56,7 @@ const METADATA_TTL = 24 * 60 * 60 * 1000; // 24 hours for metadata
 const POPULAR_BOOKS_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days for popular books
 const MAX_CACHE_SIZE = 50; // Prevent memory overflow
 
-// Complete book mapping with all available books
+// Complete book mapping with all available books (verified against external API)
 const BOOK_MAPPING: { [key: string]: { id: number; name: string; description: string } } = {
   'bukhari': { id: 1, name: 'صحيح البخاري', description: 'Sahih al-Bukhari' },
   'muslim': { id: 2, name: 'صحيح مسلم', description: 'Sahih Muslim' },
@@ -57,13 +65,13 @@ const BOOK_MAPPING: { [key: string]: { id: number; name: string; description: st
   'nasai': { id: 5, name: 'سنن النسائي', description: 'Sunan an-Nasa\'i' },
   'ibnmajah': { id: 6, name: 'سنن ابن ماجه', description: 'Sunan Ibn Majah' },
   'malik': { id: 7, name: 'موطأ مالك', description: 'Muwatta Malik' },
-  'riyadussaliheen': { id: 8, name: 'رياض الصالحين', description: 'Riyad as-Salihin' },
-  'adab': { id: 9, name: 'الأدب المفرد', description: 'Al-Adab Al-Mufrad' },
-  'bulughulmaram': { id: 10, name: 'بلوغ المرام', description: 'Bulugh al-Maram' }
+  'nawawi': { id: 8, name: 'الأربعون النووية', description: 'Forty Hadith of an-Nawawi' },
+  'qudsi': { id: 9, name: 'الأحاديث القدسية', description: 'Forty Hadith Qudsi' },
+  
 };
 
-// Popular books with longer cache times
-const POPULAR_BOOKS = ['bukhari', 'muslim', 'riyadussaliheen', 'bulughulmaram'];
+// Popular books with longer cache times (verified against external API)
+const POPULAR_BOOKS = ['bukhari', 'muslim', 'nawawi', 'tirmidhi'];
 
 // Advanced cache helper functions
 function getCachedData(key: string): CachedData | null {
@@ -368,12 +376,50 @@ function processHadithData(data: any, bookName: string): Hadith[] {
   return validHadiths;
 }
 
+// Function to preload popular books (can be called internally but not exported)
+async function preloadPopularBooks(): Promise<void> {
+  console.log('🚀 Preloading popular hadith books...');
+  
+  for (const bookKey of POPULAR_BOOKS) {
+    const cacheKey = `hadith_book_${BOOK_MAPPING[bookKey].id}`;
+    
+    // Check if already cached
+    if (getCachedData(cacheKey)) {
+      console.log(`✅ ${bookKey} already cached`);
+      continue;
+    }
+    
+    try {
+      console.log(`📥 Preloading ${bookKey}...`);
+      const response = await fetchWithParallelCDNs(bookKey);
+      const data = await response.json();
+      
+      const bookName = BOOK_MAPPING[bookKey].name;
+      const processedHadiths = processHadithData(data, bookName);
+      
+      const cacheData = {
+        hadiths: processedHadiths,
+        total: processedHadiths.length,
+        bookName: bookName
+      };
+      
+      setCachedData(cacheKey, cacheData, POPULAR_BOOKS_TTL);
+      console.log(`✅ Preloaded ${bookKey} with ${processedHadiths.length} hadiths`);
+      
+    } catch (error) {
+      console.error(`❌ Failed to preload ${bookKey}:`, error);
+    }
+  }
+  
+  console.log('🎉 Popular books preloading completed');
+}
+
 // Main GET handler with advanced caching
 export async function GET(request: Request) {
   const startTime = Date.now();
   const { searchParams } = new URL(request.url);
   const bookId = searchParams.get('bookId');
-  const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined;
+  const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 10; // Default to 10 hadiths per page
   const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0;
 
   try {
@@ -392,19 +438,29 @@ export async function GET(request: Request) {
         const cacheAge = Date.now() - cachedData.timestamp;
         console.log(`⚡ CACHE HIT for book ${bookId} (age: ${Math.round(cacheAge/1000)}s, accessed: ${cachedData.accessCount} times)`);
         
-        // Apply pagination if requested
-        let hadiths = cachedData.data.hadiths;
-        if (limit) {
-          hadiths = hadiths.slice(offset, offset + limit);
-        }
+        // Calculate pagination metadata
+        const totalHadiths = cachedData.data.total;
+        const currentPage = Math.floor(offset / limit) + 1;
+        const totalPages = Math.ceil(totalHadiths / limit);
+        
+        // Apply pagination - always paginate for consistent response structure
+        const hadiths = cachedData.data.hadiths.slice(offset, offset + limit);
         
         return NextResponse.json({ 
           hadiths,
           success: true,
-          total: cachedData.data.total,
+          total: totalHadiths,
           bookName: cachedData.data.bookName,
           cached: true,
           cacheAge: Math.round(cacheAge / 1000),
+          pagination: {
+            currentPage,
+            totalPages,
+            limit,
+            offset,
+            hasNextPage: currentPage < totalPages,
+            hasPreviousPage: currentPage > 1
+          },
           performance: {
             responseTime: Date.now() - startTime,
             cacheHit: true
@@ -454,24 +510,36 @@ export async function GET(request: Request) {
         const isPopular = POPULAR_BOOKS.includes(bookKey);
         setCachedData(baseCacheKey, cacheData, isPopular ? POPULAR_BOOKS_TTL : CACHE_TTL);
         
-        // Apply pagination if requested
-        let hadiths = processedHadiths;
-        if (limit) {
-          hadiths = hadiths.slice(offset, offset + limit);
-          // Cache paginated result too
-          setCachedData(cacheKey, { ...cacheData, hadiths });
-        }
+        // Calculate pagination metadata
+        const totalHadiths = processedHadiths.length;
+        const currentPage = Math.floor(offset / limit) + 1;
+        const totalPages = Math.ceil(totalHadiths / limit);
+        
+        // Apply pagination - always paginate for consistent response structure
+        const hadiths = processedHadiths.slice(offset, offset + limit);
+        
+        // Cache paginated result for this specific page
+        const paginatedCacheKey = `hadith_book_${bookId}_${limit}_${offset}`;
+        setCachedData(paginatedCacheKey, { ...cacheData, hadiths });
         
         const totalResponseTime = Date.now() - startTime;
         console.log(`✅ Complete response generated in ${totalResponseTime}ms (fetch: ${fetchTime}ms, processing: ${processingTime}ms)`);
-        console.log(`📊 Book statistics: ${processedHadiths.length} valid hadiths returned out of raw data`);
+        console.log(`📊 Book statistics: ${totalHadiths} total hadiths, returning page ${currentPage}/${totalPages} (${hadiths.length} hadiths)`);
         
         return NextResponse.json({ 
           hadiths,
           success: true,
-          total: processedHadiths.length,
+          total: totalHadiths,
           bookName: bookName,
           cached: false,
+          pagination: {
+            currentPage,
+            totalPages,
+            limit,
+            offset,
+            hasNextPage: currentPage < totalPages,
+            hasPreviousPage: currentPage > 1
+          },
           performance: {
             responseTime: totalResponseTime,
             cacheHit: false,
@@ -549,144 +617,4 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-}
-
-// Advanced preloading function with prioritized caching
-export async function preloadPopularBooks() {
-  console.log('🚀 Starting intelligent preload of popular books...');
-  const startTime = Date.now();
-  
-  // Preload popular books in parallel with different priorities
-  const preloadPromises = POPULAR_BOOKS.map(async (bookKey, index) => {
-    try {
-      const bookId = BOOK_MAPPING[bookKey].id;
-      const cacheKey = `hadith_book_${bookId}`;
-      
-      // Skip if already cached
-      if (getCachedData(cacheKey)) {
-        console.log(`⚡ ${bookKey} already cached, skipping`);
-        return;
-      }
-      
-      // Stagger requests to avoid overwhelming the API
-      await new Promise(resolve => setTimeout(resolve, index * 100));
-      
-      console.log(`📥 Preloading ${bookKey} (priority: ${index + 1})...`);
-      const bookStartTime = Date.now();
-      
-      const response = await fetchWithParallelCDNs(bookKey);
-      const data = await response.json();
-      const bookName = BOOK_MAPPING[bookKey].name;
-      const processedHadiths = processHadithData(data, bookName);
-      
-      setCachedData(cacheKey, {
-        hadiths: processedHadiths,
-        total: processedHadiths.length,
-        bookName: bookName
-      }, POPULAR_BOOKS_TTL);
-      
-      const bookTime = Date.now() - bookStartTime;
-      console.log(`✅ ${bookKey}: ${processedHadiths.length} hadiths preloaded in ${bookTime}ms`);
-      
-    } catch (error) {
-      console.error(`❌ Failed to preload ${bookKey}:`, error);
-    }
-  });
-  
-  await Promise.all(preloadPromises);
-  
-  const totalTime = Date.now() - startTime;
-  console.log(`🎉 Popular books preloaded in ${totalTime}ms. Cache size: ${cache.size} entries`);
-}
-
-// Enhanced cache management with analytics
-export function cleanupCache() {
-  const startTime = Date.now();
-  const now = Date.now();
-  let cleaned = 0;
-  let totalAccess = 0;
-  
-  // Collect statistics before cleanup
-  for (const [key, cached] of cache.entries()) {
-    totalAccess += cached.accessCount;
-    if (now >= cached.expiresAt) {
-      cache.delete(key);
-      cleaned++;
-    }
-  }
-  
-  // Clean extraction caches periodically
-  if (extractTextCache.size > 1000) {
-    extractTextCache.clear();
-    console.log('🧹 Cleared text extraction cache');
-  }
-  
-  if (extractNarratorCache.size > 1000) {
-    extractNarratorCache.clear();
-    console.log('🧹 Cleared narrator extraction cache');
-  }
-  
-  if (extractReferenceCache.size > 1000) {
-    extractReferenceCache.clear();
-    console.log('🧹 Cleared reference extraction cache');
-  }
-  
-  const cleanupTime = Date.now() - startTime;
-  console.log(`🧹 Cache cleanup: ${cleaned} entries removed in ${cleanupTime}ms. Remaining: ${cache.size} entries. Total access count: ${totalAccess}`);
-}
-
-// Comprehensive cache statistics for monitoring
-export function getCacheStats() {
-  const now = Date.now();
-  const entries = Array.from(cache.entries());
-  
-  return {
-    totalEntries: cache.size,
-    bookEntries: entries.filter(([key]) => key.startsWith('hadith_book_')).length,
-    totalMemoryUsage: JSON.stringify(entries).length,
-    averageAccessCount: entries.reduce((sum, [, cached]) => sum + cached.accessCount, 0) / entries.length || 0,
-    oldestEntry: entries.length > 0 ? Math.min(...entries.map(([, cached]) => cached.timestamp)) : 0,
-    newestEntry: entries.length > 0 ? Math.max(...entries.map(([, cached]) => cached.timestamp)) : 0,
-    hitRate: entries.reduce((sum, [, cached]) => sum + cached.accessCount, 0),
-    popularBooks: entries
-      .filter(([key]) => key.startsWith('hadith_book_'))
-      .sort(([, a], [, b]) => b.accessCount - a.accessCount)
-      .slice(0, 5)
-      .map(([key, cached]) => ({ key, accessCount: cached.accessCount })),
-    extractionCaches: {
-      textCache: extractTextCache.size,
-      narratorCache: extractNarratorCache.size,
-      referenceCache: extractReferenceCache.size
-    },
-    bookListCache: bookListCache.size,
-    metadataCache: metadataCache.size
-  };
-}
-
-// Warmup function to pre-populate caches on server start
-export async function warmupCache() {
-  console.log('🔥 Starting cache warmup...');
-  
-  // Preload popular books
-  await preloadPopularBooks();
-  
-  // Preload book list
-  try {
-    const books: HadithBook[] = Object.keys(BOOK_MAPPING).map(key => ({
-      bookId: BOOK_MAPPING[key].id,
-      bookName: BOOK_MAPPING[key].name,
-      bookDescription: BOOK_MAPPING[key].description
-    }));
-    
-    bookListCache.set('book_list_all', {
-      data: { books, success: true, total: books.length },
-      timestamp: Date.now()
-    });
-    
-    console.log('📚 Book list preloaded');
-  } catch (error) {
-    console.error('❌ Failed to preload book list:', error);
-  }
-  
-  console.log('🔥 Cache warmup completed');
 }

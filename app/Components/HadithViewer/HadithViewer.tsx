@@ -275,6 +275,14 @@ const HadithViewer: React.FC = () => {
   const [showHadiths, setShowHadiths] = useState<boolean>(false);
   const [responseTime, setResponseTime] = useState<number>(0);
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(0);
+  const [totalHadiths, setTotalHadiths] = useState<number>(0);
+  const [hasNextPage, setHasNextPage] = useState<boolean>(false);
+  const [hasPreviousPage, setHasPreviousPage] = useState<boolean>(false);
+  const [loadingPage, setLoadingPage] = useState<boolean>(false);
+  
   // Search state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearching, setIsSearching] = useState<boolean>(false);
@@ -393,22 +401,31 @@ const HadithViewer: React.FC = () => {
     fetchBooks();
   }, []);
 
-  // Enhanced hadith fetching with performance tracking
-  const fetchHadiths = async () => {
+  // Enhanced hadith fetching with pagination support
+  const fetchHadiths = async (page: number = 1) => {
     if (!selectedBook) return;
     
-    setLoading(true);
+    setLoadingPage(true);
     setError(null);
-    setHadiths([]);
-    setFilteredResults([]);
-    setShowHadiths(false);
-    clearSearch();
+    
+    // Only clear hadiths if it's the first page (new book selection)
+    if (page === 1) {
+      setLoading(true);
+      setHadiths([]);
+      setFilteredResults([]);
+      setShowHadiths(false);
+      clearSearch();
+      setCurrentPage(1);
+    }
     
     try {
-      console.log(`🚀 Fetching hadiths for book ${selectedBook}...`);
+      const limit = 10; // 10 hadiths per page
+      const offset = (page - 1) * limit;
+      
+      console.log(`🚀 Fetching hadiths for book ${selectedBook}, page ${page}...`);
       const startTime = Date.now();
       
-      const response = await fetch(`/api/hadith?bookId=${selectedBook}`);
+      const response = await fetch(`/api/hadith?bookId=${selectedBook}&limit=${limit}&offset=${offset}`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -421,14 +438,32 @@ const HadithViewer: React.FC = () => {
       console.log(`⚡ API Response in ${fetchTime}ms:`, {
         cached: data.cached,
         total: data.total,
+        currentPage: data.pagination?.currentPage,
+        totalPages: data.pagination?.totalPages,
         cacheAge: data.cacheAge,
         performance: data.performance
       });
       
       if (data.success && data.hadiths && Array.isArray(data.hadiths)) {
-        setHadiths(data.hadiths);
+        if (page === 1) {
+          // New book - replace hadiths
+          setHadiths(data.hadiths);
+        } else {
+          // Additional page - append hadiths
+          setHadiths(prev => [...prev, ...data.hadiths]);
+        }
+        
+        // Update pagination state
+        if (data.pagination) {
+          setCurrentPage(data.pagination.currentPage);
+          setTotalPages(data.pagination.totalPages);
+          setHasNextPage(data.pagination.hasNextPage);
+          setHasPreviousPage(data.pagination.hasPreviousPage);
+        }
+        setTotalHadiths(data.total);
         setShowHadiths(true);
-        console.log(`📝 ${data.hadiths.length} valid hadiths loaded successfully`);
+        
+        console.log(`📝 ${data.hadiths.length} hadiths loaded for page ${page} (${data.total} total)`);
         
         // Log filtering info if available
         if (data.performance?.processingTime) {
@@ -442,6 +477,7 @@ const HadithViewer: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Error fetching hadiths');
     } finally {
       setLoading(false);
+      setLoadingPage(false);
     }
   };
 
@@ -455,6 +491,16 @@ const HadithViewer: React.FC = () => {
     setFilteredResults([]);
     setError(null);
     clearSearch();
+    
+    // Reset pagination state
+    setCurrentPage(1);
+    setTotalPages(0);
+    setTotalHadiths(0);
+    setHasNextPage(false);
+    setHasPreviousPage(false);
+    
+    // Auto-fetch first page
+    setTimeout(() => fetchHadiths(1), 100);
   };
 
   return (
@@ -491,7 +537,7 @@ const HadithViewer: React.FC = () => {
                 <div className="text-xs">بحث محفوظ</div>
               </div>
               <div className="text-center">
-                <div className="font-semibold text-purple-600">{books.length}</div>
+                <div className="font-semibold text-[#177c52] dark:text-[#47b484]">{books.length}</div>
                 <div className="text-xs">كتاب متاح</div>
               </div>
             </div>
@@ -518,7 +564,7 @@ const HadithViewer: React.FC = () => {
 
       {/* Optimized Book Selection */}
       <div className="mb-8">
-        <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-white/20 dark:border-slate-700/50 shadow-xl">
+        <div className="bg-[#f7f3e9]/80 dark:bg-[#0f3422]/80 backdrop-blur-sm rounded-2xl p-6 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-xl">
           <label htmlFor="bookSelect" className="flex items-center gap-2 text-lg font-semibold text-slate-800 dark:text-white mb-4">
             <ClipboardDocumentListIcon className="w-5 h-5 text-emerald-600" />
             اختر كتاب الحديث ({books.length} كتب متاحة)
@@ -543,7 +589,7 @@ const HadithViewer: React.FC = () => {
                     className={`p-4 rounded-xl border-2 transition-all duration-300 text-right ${
                       selectedBook === book.bookId
                         ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 shadow-md'
-                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-300 hover:shadow-md'
+                        : 'border-[#b0d4bc] dark:border-[#1e5c3a] bg-[#f7f3e9] dark:bg-[#0f3422] hover:border-[#47b484] hover:shadow-md'
                     }`}
                   >
                     <div className="font-semibold text-slate-800 dark:text-white mb-1">
@@ -553,7 +599,7 @@ const HadithViewer: React.FC = () => {
                       {book.bookDescription}
                     </div>
                     {/* Popular book indicator */}
-                    {['صحيح البخاري', 'صحيح مسلم', 'رياض الصالحين', 'بلوغ المرام'].includes(book.bookName) && (
+                    {['صحيح البخاري', 'صحيح مسلم', 'الأربعون النووية', 'سنن الترمذي'].includes(book.bookName) && (
                       <div className="mt-2">
                         <span className="text-xs bg-orange-100 dark:bg-orange-900 text-orange-600 dark:text-orange-300 px-2 py-1 rounded-full">
                           شائع
@@ -567,7 +613,7 @@ const HadithViewer: React.FC = () => {
               {/* Enhanced Load Button */}
               {selectedBook && (
                 <button
-                  onClick={fetchHadiths}
+                  onClick={() => fetchHadiths(1)}
                   disabled={loading}
                   className="w-full p-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
@@ -589,7 +635,7 @@ const HadithViewer: React.FC = () => {
       {/* Ultra-Fast Search Section */}
       {showHadiths && hadiths.length > 0 && !loading && (
         <div className="mb-8">
-          <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-white/20 dark:border-slate-700/50 shadow-xl">
+          <div className="bg-[#f7f3e9]/80 dark:bg-[#0f3422]/80 backdrop-blur-sm rounded-2xl p-6 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-xl">
             <label htmlFor="hadithSearch" className="flex items-center gap-2 text-lg font-semibold text-slate-800 dark:text-white mb-4">
               <MagnifyingGlassIcon className="w-5 h-5 text-blue-600" />
               بحث فوري متقدم
@@ -605,7 +651,7 @@ const HadithViewer: React.FC = () => {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="ابحث في جميع النصوص والرواة... (بحث فوري مع ذاكرة ذكية)"
-                className="w-full p-4 pr-12 pl-12 border-2 border-blue-200 dark:border-blue-800 rounded-xl bg-white dark:bg-slate-700 text-slate-800 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all duration-300"
+                className="w-full p-4 pr-12 pl-12 border-2 border-[#177c52]/40 dark:border-[#177c52]/50 rounded-xl bg-[#f7f3e9] dark:bg-[#0c3320] text-[#1a3a26] dark:text-white placeholder-[#6b9a7a] dark:placeholder-[#5a8870] focus:border-[#177c52] focus:ring-4 focus:ring-[#177c52]/20 transition-all duration-300"
                 dir="rtl"
               />
               
@@ -653,19 +699,24 @@ const HadithViewer: React.FC = () => {
       {/* Enhanced Hadith Display */}
       {showHadiths && displayHadiths.length > 0 && !loading && (
         <div className="space-y-6">
-          {/* Section Header */}
+          {/* Section Header with Pagination Info */}
           <div className="text-center mb-8">
             <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-6 text-white shadow-xl">
               <h2 className="text-2xl font-bold mb-2">
                 {selectedBookName}
               </h2>
-              <div className="flex items-center justify-center gap-4">
+              <div className="flex items-center justify-center gap-4 flex-wrap">
                 <p className="text-emerald-100">
                   {searchQuery 
-                    ? `${filteredResults.length} من ${hadiths.length} حديث صحيح المحتوى`
-                    : `${hadiths.length} حديث صحيح المحتوى`
+                    ? `${filteredResults.length} من ${totalHadiths} حديث صحيح المحتوى`
+                    : `عرض ${hadiths.length} من أصل ${totalHadiths} حديث`
                   }
                 </p>
+                {!searchQuery && totalPages > 1 && (
+                  <span className="text-xs bg-white/20 text-white px-3 py-1 rounded-full">
+                    صفحة {currentPage} من {totalPages}
+                  </span>
+                )}
                 <span className="text-xs bg-white/20 text-white px-2 py-1 rounded-full">
                   ذاكرة ذكية متقدمة
                 </span>
@@ -673,8 +724,8 @@ const HadithViewer: React.FC = () => {
             </div>
           </div>
 
-          {/* Optimized Hadiths List */}
-          {displayHadiths.slice(0, 50).map((hadith, index) => {
+          {/* Optimized Hadiths List - Show all loaded hadiths */}
+          {displayHadiths.map((hadith, index) => {
             const searchResult = filteredResults.find(r => r.hadith.hadithId === hadith.hadithId);
             const matches = searchResult?.matches;
             
@@ -686,7 +737,7 @@ const HadithViewer: React.FC = () => {
             return (
               <div 
                 key={hadith.hadithId} 
-                className={`group bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-white/20 dark:border-slate-700/50 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.01] ${
+                className={`group bg-[#f7f3e9]/80 dark:bg-[#0f3422]/80 backdrop-blur-sm rounded-2xl p-6 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.01] ${
                   searchResult ? 'ring-2 ring-blue-300 dark:ring-blue-600 shadow-blue-100 dark:shadow-blue-900/20' : ''
                 }`}
               >
@@ -729,7 +780,7 @@ const HadithViewer: React.FC = () => {
                 {/* Hadith Details Grid */}
                 <div className="grid md:grid-cols-2 gap-4">
                   {/* Narrator */}
-                  <div className={`bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 border ${
+                  <div className={`bg-gradient-to-r from-[#eef7f0] to-[#f4f8f1] dark:from-[#0c3320]/50 dark:to-[#0f3a24]/40 rounded-xl p-4 border ${
                     matches?.narrator ? 'border-blue-400 dark:border-blue-600 shadow-md' : 'border-blue-200 dark:border-blue-800'
                   }`}>
                     <div className="flex items-center gap-2 mb-2">
@@ -747,19 +798,19 @@ const HadithViewer: React.FC = () => {
                   </div>
                   
                   {/* Reference */}
-                  <div className={`bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl p-4 border ${
-                    matches?.reference ? 'border-purple-400 dark:border-purple-600 shadow-md' : 'border-purple-200 dark:border-purple-800'
+                  <div className={`bg-gradient-to-r from-[#fdf8e8] to-[#faf0d5] dark:from-[#1a3010]/40 dark:to-[#24400c]/30 rounded-xl p-4 border ${
+                    matches?.reference ? 'border-[#c27c18] dark:border-[#efb63c]/60 shadow-md' : 'border-[#c27c18]/30 dark:border-[#c27c18]/30'
                   }`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <BookOpenIcon className="w-5 h-5 text-purple-600" />
-                      <span className="font-semibold text-purple-800 dark:text-purple-300">المرجع</span>
+                      <BookOpenIcon className="w-5 h-5 text-[#c27c18]" />
+                      <span className="font-semibold text-[#6b5010] dark:text-[#d4a843]">المرجع</span>
                       {matches?.reference && (
-                        <span className="text-xs bg-purple-200 dark:bg-purple-700 text-purple-800 dark:text-purple-200 px-2 py-1 rounded-full">
+                        <span className="text-xs bg-[#f1e0b5] dark:bg-[#8a530d]/60 text-[#7a4512] dark:text-[#fdf3d0] px-2 py-1 rounded-full">
                           تطابق
                         </span>
                       )}
                     </div>
-                    <p className="text-purple-700 dark:text-purple-200">
+                    <p className="text-[#7a4512] dark:text-[#f1e0b5]">
                       {highlightSearchTerm(hadith.reference, searchQuery)}
                     </p>
                   </div>
@@ -778,12 +829,65 @@ const HadithViewer: React.FC = () => {
             );
           }).filter(Boolean)} {/* Filter out any null entries */}
 
-          {/* Load More Results */}
-          {filteredResults.length > 50 && (
+          {/* Pagination Controls */}
+          {!searchQuery && totalPages > 1 && (
+            <div className="flex justify-center items-center gap-4 py-8">
+              <div className="bg-[#f7f3e9]/80 dark:bg-[#0f3422]/80 backdrop-blur-sm rounded-2xl p-6 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-xl">
+                <div className="flex items-center gap-4">
+                  {/* Load More Button */}
+                  {hasNextPage && (
+                    <button
+                      onClick={() => fetchHadiths(currentPage + 1)}
+                      disabled={loadingPage}
+                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                    >
+                      {loadingPage ? (
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                          جاري التحميل...
+                        </div>
+                      ) : (
+                        `تحميل المزيد - الصفحة ${currentPage + 1}`
+                      )}
+                    </button>
+                  )}
+                  
+                  {/* Pagination Info */}
+                  <div className="text-center">
+                    <p className="text-slate-600 dark:text-slate-300 text-sm">
+                      صفحة {currentPage} من {totalPages}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {hadiths.length} من أصل {totalHadiths} حديث محمل
+                    </p>
+                  </div>
+                  
+                  {/* Page Navigation */}
+                  <div className="flex gap-2">
+                    {currentPage > 1 && (
+                      <button
+                        onClick={() => {
+                          setHadiths([]);
+                          setCurrentPage(1);
+                          fetchHadiths(1);
+                        }}
+                        className="px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg transition-colors"
+                      >
+                        الصفحة الأولى
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Load More Results for Search */}
+          {searchQuery && filteredResults.length > displayHadiths.length && (
             <div className="text-center py-8">
-              <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-6 border border-white/20 dark:border-slate-700/50 shadow-xl inline-block">
+              <div className="bg-[#f7f3e9]/80 dark:bg-[#0f3422]/80 backdrop-blur-sm rounded-2xl p-6 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-xl inline-block">
                 <p className="text-slate-600 dark:text-slate-300 mb-4">
-                  عرض أول 50 نتيجة من أصل {filteredResults.length} نتيجة
+                  عرض {displayHadiths.length} نتيجة من أصل {filteredResults.length} نتيجة
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   💡 استخدم كلمات أكثر تحديداً لتضييق نطاق البحث
@@ -797,7 +901,7 @@ const HadithViewer: React.FC = () => {
       {/* No Search Results */}
       {showHadiths && searchQuery && filteredResults.length === 0 && !loading && !isSearching && (
         <div className="text-center py-12">
-          <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-8 border border-white/20 dark:border-slate-700/50 shadow-xl inline-block">
+          <div className="bg-[#f7f3e9]/80 dark:bg-[#0f3422]/80 backdrop-blur-sm rounded-2xl p-8 border border-[#c27c18]/20 dark:border-[#177c52]/40 shadow-xl inline-block">
             <MagnifyingGlassIcon className="w-16 h-16 text-slate-400 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-slate-800 dark:text-white mb-2">
               لم يتم العثور على نتائج

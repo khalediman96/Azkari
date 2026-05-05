@@ -18,7 +18,7 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning className="dark:bg-[--background]" >
       <body>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem> 
+        <ThemeProvider attribute="class" > 
          <Header/>
     
           {children}
